@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Disk Scheduling Simulator – SCAN, C-SCAN and SMCC</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--ink:#14213d;--mut:#5b6785;--line:#dde3f0;--acc:#0f4761;--blue:#2563eb;--red:#dc2626;--amb:#f59e0b;--grn:#16a34a;--bar2:#f97316;--bar3:#7c3aed;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0d1424;--card:#151e33;--ink:#e8edf8;--mut:#9aa7c7;--line:#26324f;--acc:#7cc4e8;--blue:#60a5fa;--red:#f87171;--amb:#fbbf24;--grn:#4ade80;--bar3:#a78bfa}}
+:root[data-theme=dark]{--bg:#0d1424;--card:#151e33;--ink:#e8edf8;--mut:#9aa7c7;--line:#26324f;--acc:#7cc4e8;--blue:#60a5fa;--red:#f87171;--amb:#fbbf24;--grn:#4ade80;--bar3:#a78bfa}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+header{padding:14px 20px;display:flex;gap:12px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:var(--card)}
+h1{font-size:18px;margin:0;color:var(--acc)}h1 small{display:block;font-size:12px;color:var(--mut);font-weight:400}
+.wrap{display:grid;grid-template-columns:330px 1fr;gap:14px;padding:14px;max-width:1560px;margin:auto}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0}
+.card h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:0 0 10px}
+label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
+input[type=text],input[type=number],select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+.row{display:flex;gap:8px}.row>*{flex:1;min-width:0}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{flex:1;border:0;background:none;color:var(--ink);padding:8px 4px;cursor:pointer;font:inherit}
+.seg button.on{background:var(--acc);color:var(--bg);font-weight:600}
+.seg.dim{opacity:.45}
+button.act{border:0;border-radius:8px;padding:10px;font:inherit;font-weight:600;cursor:pointer;color:#fff}
+.run{background:var(--grn)}.pause{background:var(--amb)}.reset{background:var(--red)}.ghost{background:var(--bg);color:var(--ink)!important;border:1px solid var(--line)!important}
+#err{display:none;background:#fee2e2;color:#991b1b;border-radius:8px;padding:8px 10px;margin-top:10px;font-size:13px}
+.hint{font-size:11px;color:var(--mut);margin:6px 0 0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px}.kpi b{font-size:21px;display:block}.kpi span{font-size:11px;color:var(--mut)}
+canvas{width:100%;height:340px;display:block;background:var(--bg);border-radius:10px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:8px}
+.legend i{display:inline-block;width:14px;height:3px;margin-right:5px;vertical-align:middle}
+.cmp{display:grid;grid-template-columns:62px 1fr 110px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.bar{height:16px;border-radius:5px;transition:width .4s}
+.tbl{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.tbl.auto{max-height:none;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px}th,td{padding:6px 9px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{position:sticky;top:0;background:var(--acc);color:var(--bg)}td:first-child,th:first-child{text-align:left}
+#rows td:first-child,#rows th:first-child{text-align:right}#rows td:last-child{text-align:left}
+tr.cur{background:rgba(37,99,235,.18)}tr.best td{font-weight:700}
+.stack{display:grid;gap:14px;align-content:start}.split{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:1100px){.split{grid-template-columns:1fr}}
+.decide{background:var(--bg);border-radius:8px;padding:8px 10px;font-size:12.5px;margin-top:10px;line-height:1.6}
+.decide b{color:var(--bar3)}
+#bres{margin-top:10px}
+</style></head><body>
+<header><h1>Disk Scheduling Simulator<small>SCAN · C-SCAN · SMCC (research approach) · SAKEC Operating Systems SLA – Stage 3</small></h1>
+<button class="act ghost" id="theme">Theme</button></header>
+<div class="wrap">
+<aside class="stack">
+ <div class="card"><h2>1 · Input</h2>
+  <div class="row"><div><label>Cylinders (N)</label><input type="number" id="n" value="200" min="2"></div>
+  <div><label>Head position</label><input type="number" id="head" value="53"></div></div>
+  <label>Request queue (comma / space separated)</label><input type="text" id="q" value="98, 183, 41, 122, 14, 124, 65, 67">
+  <label>Initial direction (SCAN / C-SCAN)</label><div class="seg" id="dir"><button data-v="right" class="on">Right ↑</button><button data-v="left">Left ↓</button></div>
+  <label>Mode (SCAN / C-SCAN)</label><div class="seg" id="mode"><button data-v="classic" class="on">Classic</button><button data-v="look">Look-ahead</button></div>
+  <p class="hint" id="modehint"></p>
+  <div class="row" style="margin-top:10px"><button class="act ghost" id="sample">Sample</button><button class="act ghost" id="rand">Random</button></div>
+  <div id="err"></div></div>
+ <div class="card"><h2>2 · System settings (new)</h2>
+  <label>Hardware preset</label>
+  <select id="preset"><option value="ideal">Ideal – seek only (Stage 2 model)</option><option value="hdd7200" selected>HDD 7200 RPM</option><option value="hdd5400">HDD 5400 RPM</option><option value="custom">Custom</option></select>
+  <div class="row"><div><label>Seek / cylinder (ms)</label><input type="number" id="ms" value="0.1" step="0.01" min="0.001"></div>
+  <div><label>Settle / seek (ms)</label><input type="number" id="settle" value="0.5" step="0.1" min="0"></div></div>
+  <div class="row"><div><label>Spindle RPM (0 = off)</label><input type="number" id="rpm" value="7200" step="100" min="0"></div>
+  <div><label>Transfer / request (ms)</label><input type="number" id="trans" value="0.1" step="0.05" min="0"></div></div>
+  <label>C-SCAN return-jump speed factor (1 = same speed, 0.5 = twice as fast)</label><input type="number" id="jf" value="0.5" step="0.1" min="0.05" max="1">
+  <p class="hint">Rotational latency = ½ rotation = 30000 ÷ RPM ms per request. Cylinder counts (THM) are never affected by these settings; only times and wait metrics are.</p></div>
+ <div class="card"><h2>3 · Algorithm</h2><div class="seg" id="algo"><button data-v="SCAN" class="on">SCAN</button><button data-v="C-SCAN">C-SCAN</button><button data-v="SMCC">SMCC</button></div>
+  <h2 style="margin-top:14px">4 · Execute</h2>
+  <div class="row"><button class="act run" id="run">▶ Run</button><button class="act pause" id="pause">❚❚ Pause</button><button class="act reset" id="reset">↺ Reset</button></div>
+  <label>Speed <span id="spv"></span></label><input type="range" id="speed" min="1" max="10" value="4" style="width:100%">
+  <button class="act ghost" id="csv" style="width:100%;margin-top:10px">⬇ Export step log (CSV)</button></div>
+</aside>
+<main class="stack">
+ <div class="kpis" id="kpis"></div>
+ <div class="card"><h2>5 · Head trajectory <span id="ttl"></span></h2><canvas id="cv" height="340"></canvas>
+  <div class="legend"><span><i style="background:var(--blue)"></i>Servicing movement</span><span><i style="background:var(--red)"></i>C-SCAN return jump (no service)</span><span><i style="background:var(--amb)"></i>Disk-end / turnaround</span><span><i style="background:var(--grn)"></i>Serviced request</span></div></div>
+ <div class="split">
+  <div class="card"><h2>6 · Compare SCAN · C-SCAN · SMCC</h2><div id="cmp"></div><div class="decide" id="decide"></div><p id="verdict" style="color:var(--mut);margin:10px 0 0"></p></div>
+  <div class="card"><h2>Step log</h2><div class="tbl"><table><thead><tr><th>#</th><th>From</th><th>To</th><th>Dist</th><th>Cumul.</th><th>Time ms</th><th>Type</th></tr></thead><tbody id="rows"></tbody></table></div></div>
+ </div>
+ <div class="card"><h2>Full metric comparison (identical input and settings)</h2><div class="tbl auto"><table id="mt"></table></div></div>
+ <div class="card"><h2>7 · Benchmark on random workloads (new)</h2>
+  <div class="row"><div><label>Trials per queue size</label><input type="number" id="trials" value="1000" min="10" max="20000"></div>
+  <div><label>Random seed</label><input type="number" id="seed" value="42"></div>
+  <div><label>Workload pattern</label><select id="pat"><option value="uniform">Uniform random</option><option value="clustered">Clustered (3 hot regions)</option></select></div>
+  <div style="display:flex;align-items:flex-end"><button class="act run" id="bench" style="width:100%">▶ Run benchmark</button></div></div>
+  <p class="hint">Queue sizes 4, 8, 16, 32, 64, 128; random head position and random initial direction per trial; mean total head movement in cylinders for the current N. Same seed gives the same numbers.</p>
+  <div id="bres"></div></div>
+</main></div>
+<script id="core">
+// ================= core (no DOM): parse, validate, schedule, metrics, benchmark =================
+function parse(s){const t=s.replace(/,/g," ").trim().split(/\s+/).filter(Boolean);
+  if(!t.length)return[];const bad=t.find(x=>!/^-?\d+$/.test(x));if(bad)throw `'${bad}' is not a valid integer.`;return t.map(Number);}
+function validate(n,h,reqs){
+  if(!Number.isInteger(n)||n<2)throw "Total cylinders (N) must be an integer ≥ 2.";
+  if(!Number.isInteger(h)||h<0||h>=n)throw `Head position must be between 0 and ${n-1}.`;
+  if(!reqs.length)throw "Request queue is empty. Enter at least one cylinder.";
+  const bad=reqs.filter(r=>r<0||r>=n);if(bad.length)throw `Requests [${bad}] are outside 0..${n-1}.`;
+  return [...new Set(reqs)].sort((a,b)=>a-b);
+}
+function validateSys(s){
+  if(!(s.ms>0))throw "Seek time per cylinder must be > 0.";
+  if(!(s.settle>=0))throw "Settle time must be ≥ 0.";
+  if(!(s.rpm>=0))throw "Spindle RPM must be ≥ 0 (0 switches rotational latency off).";
+  if(!(s.trans>=0))throw "Transfer time must be ≥ 0.";
+  if(!(s.jf>0&&s.jf<=1))throw "Return-jump speed factor must be in (0, 1].";
+  return s;
+}
+// algo: "SCAN" | "C-SCAN" | "SMCC"; mode: "classic" | "look" (SMCC always behaves as look-ahead)
+function schedule(algo,n,h,reqs,dir,mode){
+  const rs=new Set(reqs),R=dir==="right",hops=[];
+  const walk=(from,list)=>{let c=from;for(const t of list){hops.push([c,t,rs.has(t)?"service":"boundary"]);c=t}};
+  let dirUsed=dir,info=null;
+  if(algo==="SMCC"){
+    const low=reqs[0],high=reqs[reqs.length-1],mpr=(low+high)/2;
+    let goLeft;
+    if(h<=low)goLeft=false;else if(h>=high)goLeft=true;else if(h<mpr)goLeft=true;else if(h>mpr)goLeft=false;else goLeft=!R;
+    const first=goLeft?reqs.filter(r=>r<=h).reverse():reqs.filter(r=>r>=h);
+    const second=goLeft?reqs.filter(r=>r>h):reqs.filter(r=>r<h).reverse();
+    walk(h,[...first,...second]);dirUsed=goLeft?"left":"right";info={low,high,mpr,h,goLeft};
+  }else{
+    const ahead=R?reqs.filter(r=>r>=h):reqs.filter(r=>r<=h).reverse();
+    let behind=R?reqs.filter(r=>r<h).reverse():reqs.filter(r=>r>h);
+    const edge=R?n-1:0,far=R?0:n-1;let tg=[...ahead];
+    if(mode==="classic"&&(!tg.length||tg[tg.length-1]!==edge))tg.push(edge);
+    if(algo==="SCAN"){walk(h,[...tg,...behind]);}
+    else{const cur=tg.length?tg[tg.length-1]:h;walk(h,tg);behind=behind.reverse();
+      if(behind.length){const land=mode==="classic"?far:behind[0];hops.push([cur,land,"jump"]);walk(land,mode==="classic"?behind:behind.slice(1));}}
+  }
+  let tot=0;const steps=hops.map(([a,b,k],i)=>{const d=Math.abs(b-a);tot+=d;return{n:i+1,a,b,d,cum:tot,k}});
+  const seq=[h,...steps.map(s=>s.b)];const done={};if(rs.has(h))done[h]=0;
+  steps.forEach(s=>{if(rs.has(s.b)&&!(s.b in done))done[s.b]=s.cum});
+  return{algo,steps,seq,thm:tot,done,served:Object.keys(done).length,dirUsed,info,mode:algo==="SMCC"?"look":mode};
+}
+// time model: seek (per cylinder, jump scaled by jf) + settle per non-zero move + (rotational latency + transfer) per serviced request
+function metrics(r,sys){
+  const rot=sys.rpm>0?30000/sys.rpm:0,rs=new Set(Object.keys(r.done).map(Number)),resp={};
+  let t=0,seekT=0;
+  r.steps.forEach(s=>{const mv=s.d*sys.ms*(s.k==="jump"?sys.jf:1)+(s.d>0?sys.settle:0);t+=mv;seekT+=mv;
+    if(rs.has(s.b)&&!(s.b in resp)){t+=rot+sys.trans;resp[s.b]=t}s.t=t});
+  const w=Object.values(resp),m=w.reduce((a,b)=>a+b,0)/w.length,sq=w.reduce((a,b)=>a+b*b,0);
+  const sd=Math.sqrt(w.reduce((a,b)=>a+(b-m)**2,0)/w.length);
+  return{thm:r.thm,avg:r.thm/r.served,seekMs:seekT,total:t,thr:t>0?r.served/(t/1000):Infinity,wait:m,sd,max:Math.max(...w),jain:sq>0?(w.reduce((a,b)=>a+b,0)**2)/(w.length*sq):1,rot};
+}
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function genReqs(rng,n,k,pat){
+  const out=[];
+  if(pat==="clustered"){const c=[0,1,2].map(()=>rng()*(n-1));
+    for(let i=0;i<k;i++){const u=Math.max(rng(),1e-9),v=rng(),g=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+      out.push(Math.min(n-1,Math.max(0,Math.round(c[Math.floor(rng()*3)]+g*n/15))))}}
+  else for(let i=0;i<k;i++)out.push(Math.floor(rng()*n));
+  return [...new Set(out)].sort((a,b)=>a-b);
+}
+const CFG=[["SCAN","SCAN","classic"],["C-SCAN","C-SCAN","classic"],["LOOK","SCAN","look"],["C-LOOK","C-SCAN","look"],["SMCC","SMCC","look"]];
+function benchmark(n,trials,seed,pat,sizes){
+  const rng=mulberry32(seed),rows=[];
+  for(const k of sizes){const kk=Math.min(k,n),sum={},wins={SMCC_le_all:0};CFG.forEach(c=>sum[c[0]]=0);let cnt=0;
+    for(let i=0;i<trials;i++){const reqs=genReqs(rng,n,kk,pat),h=Math.floor(rng()*n),dir=rng()<.5?"right":"left";if(!reqs.length)continue;
+      const th={};CFG.forEach(([lab,al,md])=>{th[lab]=schedule(al,n,h,reqs,dir,md).thm;sum[lab]+=th[lab]});
+      if(CFG.every(c=>th.SMCC<=th[c[0]]))wins.SMCC_le_all++;cnt++}
+    const mean={};CFG.forEach(c=>mean[c[0]]=sum[c[0]]/cnt);rows.push({k:kk,mean,cnt,smccBest:wins.SMCC_le_all/cnt*100})}
+  return rows;
+}
+if(typeof module!=="undefined")module.exports={parse,validate,validateSys,schedule,metrics,benchmark,genReqs,mulberry32};
+</script>
+<script id="ui">
+// ================= UI =================
+const $=id=>document.getElementById(id);
+let sel={dir:"right",mode:"classic",algo:"SCAN"},run=null,prog=0,playing=false,last=0;
+const PRESETS={ideal:{rpm:0,trans:0,settle:0,jf:1},hdd7200:{rpm:7200,trans:0.1,settle:0.5,jf:0.5},hdd5400:{rpm:5400,trans:0.15,settle:0.8,jf:0.5}};
+const COL={SCAN:"var(--blue)","C-SCAN":"var(--bar2)",SMCC:"var(--bar3)"};
+document.querySelectorAll(".seg").forEach(g=>g.onclick=e=>{const b=e.target.closest("button");if(!b)return;
+  g.querySelectorAll("button").forEach(x=>x.classList.remove("on"));b.classList.add("on");sel[g.id]=b.dataset.v;
+  if(g.id==="algo"){if(run){run.cur=run.R[sel.algo];prog=run.cur.steps.length;playing=false;render()}return}
+  compute(false)});
+["n","head","q","ms"].forEach(i=>$(i).oninput=()=>compute(false));
+["settle","rpm","trans","jf"].forEach(i=>$(i).oninput=()=>{$("preset").value="custom";compute(false)});
+$("preset").onchange=()=>{const p=PRESETS[$("preset").value];if(p){["rpm","trans","settle","jf"].forEach(k=>$(k).value=p[k])}compute(false)};
+function readSys(){return validateSys({ms:+$("ms").value,settle:+$("settle").value,rpm:+$("rpm").value,trans:+$("trans").value,jf:+$("jf").value})}
+function compute(autoplay){
+  try{const n=+$("n").value,h=+$("head").value,reqs=validate(n,h,parse($("q").value)),sys=readSys();
+    const R={};["SCAN","C-SCAN","SMCC"].forEach(a=>{R[a]=schedule(a,n,h,reqs,sel.dir,sel.mode);R[a].m=metrics(R[a],sys)});
+    run={n,h,R,sys,cur:R[sel.algo]};$("err").style.display="none";
+    prog=autoplay?0:run.cur.steps.length;playing=autoplay;render();
+  }catch(e){const x=$("err");x.textContent="⚠ "+e;x.style.display="block";playing=false}}
+const f1=x=>x.toFixed(1),f2=x=>x.toFixed(2);
+function render(){if(!run)return;const r=run.cur,m=r.m,k=Math.floor(prog+1e-9),A=run.R;
+  const md=r.algo==="SMCC"?"adaptive look-ahead, starts "+r.dirUsed:(sel.mode==="classic"?"classic":"look-ahead")+", "+sel.dir;
+  $("ttl").textContent=`· ${r.algo} (${md})`;
+  $("mode").classList.toggle("dim",sel.algo==="SMCC");
+  $("modehint").textContent=sel.algo==="SMCC"?"SMCC always truncates at the outermost pending requests and picks its own direction, so the direction and mode toggles do not apply to it.":"Classic goes to the physical disk end; Look-ahead turns at the last pending request (LOOK / C-LOOK).";
+  $("kpis").innerHTML=[["Total head movement",m.thm+" cyl"],["Avg seek distance",f2(m.avg)+" cyl/req"],["Total service time",f1(m.total)+" ms"],["Throughput",m.thr.toFixed(0)+" req/s"],["Avg response time",f1(m.wait)+" ms"],["Worst response time",f1(m.max)+" ms"],["Response std-dev",f2(m.sd)+" ms"],["Fairness (Jain)",m.jain.toFixed(3)]].map(([a,b])=>`<div class="kpi"><b>${b}</b><span>${a}</span></div>`).join("");
+  const names=["SCAN","C-SCAN","SMCC"],mx=Math.max(...names.map(a=>A[a].m.thm));
+  $("cmp").innerHTML=names.map(a=>`<div class="cmp"><b>${a}</b><div><div class="bar" style="width:${A[a].m.thm/mx*100}%;background:${COL[a]}"></div></div><span>${A[a].m.thm} cyl · ${f2(A[a].m.avg)}</span></div>`).join("");
+  const I=A.SMCC.info;
+  $("decide").innerHTML=`<b>SMCC decision</b> · Low = ${I.low}, High = ${I.high}, MPR = (${I.low}+${I.high})/2 = ${I.mpr}<br>Head ${I.h} ${I.h<I.mpr?"&lt;":I.h>I.mpr?"&gt;":"="} MPR → start <b>${I.goLeft?"LEFT (toward Low)":"RIGHT (toward High)"}</b>, turn at ${I.goLeft?I.low:I.high}, finish at ${I.goLeft?I.high:I.low}.`;
+  const best=names.slice().sort((a,b)=>A[a].m.thm-A[b].m.thm)[0],bt=names.slice().sort((a,b)=>A[a].m.total-A[b].m.total)[0],sc=A.SCAN.m.thm;
+  $("verdict").textContent=`Least head movement: ${best} (${A[best].m.thm} cyl${best!=="SCAN"?`, ${((sc-A[best].m.thm)/sc*100).toFixed(1)}% less than SCAN`:""}). Shortest total time: ${bt} (${f1(A[bt].m.total)} ms).`;
+  $("mt").innerHTML=`<thead><tr><th>Algorithm</th><th>THM</th><th>Avg seek</th><th>Total time ms</th><th>Throughput</th><th>Avg resp ms</th><th>Worst ms</th><th>σ ms</th><th>Jain</th><th>THM gain vs SCAN</th></tr></thead><tbody>`+
+    names.map(a=>{const x=A[a].m;return `<tr class="${a===best?"best":""}"><td>${a}</td><td>${x.thm}</td><td>${f2(x.avg)}</td><td>${f1(x.total)}</td><td>${x.thr.toFixed(0)}</td><td>${f1(x.wait)}</td><td>${f1(x.max)}</td><td>${f2(x.sd)}</td><td>${x.jain.toFixed(3)}</td><td>${a==="SCAN"?"baseline":((sc-x.thm)/sc*100).toFixed(1)+" %"}</td></tr>`}).join("")+"</tbody>";
+  $("rows").innerHTML=r.steps.map((s,i)=>`<tr class="${i===k-1?"cur":""}" style="${i<k?"":"opacity:.35"}"><td>${s.n}</td><td>${s.a}</td><td>${s.b}</td><td>${s.d}</td><td>${s.cum}</td><td>${f2(s.t)}</td><td>${s.k}</td></tr>`).join("");
+  draw();}
+function draw(){const c=$("cv"),dpr=devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;c.width=W*dpr;c.height=H*dpr;
+  const g=c.getContext("2d");g.scale(dpr,dpr);const css=getComputedStyle(document.documentElement),v=n=>css.getPropertyValue(n).trim();
+  const r=run.cur,P=[34,22,26,26],N=run.n-1,S=r.steps.length,px=t=>P[0]+t/N*(W-P[0]-P[1]),py=i=>P[2]+i/Math.max(S,1)*(H-P[2]-P[3]);
+  g.font="11px system-ui";g.fillStyle=v("--mut");g.strokeStyle=v("--line");g.textAlign="center";
+  for(let i=0;i<=5;i++){const t=Math.round(N*i/5);g.beginPath();g.moveTo(px(t),P[2]-6);g.lineTo(px(t),H-P[3]);g.stroke();g.fillText(t,px(t),H-8)}
+  const k=Math.min(Math.floor(prog+1e-9),S),f=prog-k;g.lineWidth=2.4;
+  for(let i=0;i<k+(f>0&&k<S?1:0);i++){const s=r.steps[i],part=i===k?f:1,x2=s.a+(s.b-s.a)*part;
+    g.beginPath();g.setLineDash(s.k==="jump"?[7,5]:[]);g.strokeStyle=v(s.k==="jump"?"--red":"--blue");
+    g.moveTo(px(s.a),py(i));g.lineTo(px(x2),py(i+part));g.stroke();}
+  g.setLineDash([]);
+  r.seq.forEach((t,i)=>{if(i>k)return;const st=i>0&&r.steps[i-1];const isReq=i===0||st.k==="service"||(st.k==="jump"&&r.done[t]!==undefined);
+    g.beginPath();g.arc(px(t),py(i),i===0?6:4.5,0,7);g.fillStyle=i===0?v("--ink"):isReq?v("--grn"):v("--amb");g.fill();
+    if(i===0||isReq){g.fillStyle=v("--ink");g.textAlign="center";g.fillText(t,px(t),py(i)-9)}});
+  if(playing||k<S){const i=Math.min(k,S),s=r.steps[i]||r.steps[S-1],x=k>=S?r.seq[S]:r.seq[i]+(s.b-s.a)*f;
+    g.beginPath();g.arc(px(x),py(Math.min(prog,S)),8,0,7);g.strokeStyle=v("--ink");g.lineWidth=2;g.stroke()}}
+function tick(t){if(playing&&run){const dt=(t-last)/1000;prog+=dt*(+$("speed").value)*0.9;
+  if(prog>=run.cur.steps.length){prog=run.cur.steps.length;playing=false}render()}last=t;requestAnimationFrame(tick)}
+$("run").onclick=()=>compute(true);$("pause").onclick=()=>{playing=!playing;$("pause").textContent=playing?"❚❚ Pause":"▶ Resume"};
+$("reset").onclick=()=>{playing=false;prog=0;$("pause").textContent="❚❚ Pause";run&&render()};
+$("speed").oninput=()=>$("spv").textContent=$("speed").value+"×";$("spv").textContent="4×";
+$("sample").onclick=()=>{$("n").value=200;$("head").value=53;$("q").value="98, 183, 41, 122, 14, 124, 65, 67";compute(false)};
+$("rand").onclick=()=>{const n=+$("n").value||200;$("q").value=Array.from({length:10},()=>Math.floor(Math.random()*n)).join(", ");compute(false)};
+$("csv").onclick=()=>{if(!run)return;const r=run.cur,rows=["step,from,to,distance,cumulative_cyl,time_ms,type",...r.steps.map(s=>[s.n,s.a,s.b,s.d,s.cum,s.t.toFixed(3),s.k].join(","))];
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([rows.join("\n")],{type:"text/csv"}));a.download=`${r.algo}_steps.csv`;a.click()};
+$("theme").onclick=()=>{const d=document.documentElement,dark=getComputedStyle(d).getPropertyValue("--bg").trim()==="#0d1424";d.dataset.theme=dark?"light":"dark";run&&draw()};
+$("bench").onclick=()=>{const b=$("bres"),n=+$("n").value;
+  if(!Number.isInteger(n)||n<2){b.textContent="⚠ Set a valid N first.";return}
+  const tr=Math.max(10,Math.min(20000,+$("trials").value||1000));b.textContent="Running…";
+  setTimeout(()=>{const rows=benchmark(n,tr,+$("seed").value||1,$("pat").value,[4,8,16,32,64,128]),labs=CFG.map(c=>c[0]);
+    b.innerHTML=`<div class="tbl auto"><table><thead><tr><th>Queue size</th>${labs.map(l=>`<th>${l}</th>`).join("")}<th>SMCC vs SCAN</th><th>SMCC vs C-SCAN</th><th>SMCC ≤ all</th></tr></thead><tbody>`+
+      rows.map(r=>{const m=r.mean;return `<tr><td>${r.k}</td>${labs.map(l=>`<td>${m[l].toFixed(1)}</td>`).join("")}<td>${((m.SCAN-m.SMCC)/m.SCAN*100).toFixed(1)} %</td><td>${((m["C-SCAN"]-m.SMCC)/m["C-SCAN"]*100).toFixed(1)} %</td><td>${r.smccBest.toFixed(0)} %</td></tr>`}).join("")+
+      `</tbody></table></div><p class="hint">Mean total head movement (cylinders) over ${tr} trials per size, N = ${n}, ${$("pat").value}. Smaller is better.</p>`},20)};
+addEventListener("resize",()=>run&&draw());compute(false);requestAnimationFrame(tick);
+</script></body></html>
